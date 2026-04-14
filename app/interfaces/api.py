@@ -32,6 +32,7 @@ class CommandIn(BaseModel):
     tenant_id: UUID
     employer_id: UUID | None = None
     subgroup_id: UUID | None = None
+    subgroup_name: str | None = None  # textual label from 834 REF*1L (denormalized into events)
     plan_id: UUID
     member_id: UUID
     relationship: Relationship = Relationship.SUBSCRIBER
@@ -69,6 +70,7 @@ async def run_command(body: CommandIn, request: Request) -> CommandOut:
                     source_segment_ref=body.source_segment_ref,
                 ),
                 segment_key=seg_key,
+                subgroup_name=body.subgroup_name,
             )
             return CommandOut(enrollment_ids=[eid])
         if body.command_type == "TERMINATE":

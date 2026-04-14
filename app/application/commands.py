@@ -19,7 +19,13 @@ from app.domain.enrollment import (
 from app.infra.repo import EnrollmentRepo
 
 
-async def add_enrollment(s: AsyncSession, cmd: AddCommand, *, segment_key: str | None = None) -> UUID:
+async def add_enrollment(
+    s: AsyncSession,
+    cmd: AddCommand,
+    *,
+    segment_key: str | None = None,
+    subgroup_name: str | None = None,
+) -> UUID:
     repo = EnrollmentRepo(s)
     if segment_key and await repo.is_segment_processed(segment_key):
         # Duplicate 834 segment — treat as success (idempotent)
@@ -55,6 +61,7 @@ async def add_enrollment(s: AsyncSession, cmd: AddCommand, *, segment_key: str |
             "enrollment_id": str(new_eid),
             "tenant_id": str(cmd.tenant_id),
             "employer_id": str(cmd.employer_id),
+            "subgroup_name": subgroup_name,
             "plan_id": str(cmd.plan_id),
             "member_id": str(cmd.member_id),
             "relationship": cmd.relationship.value,
