@@ -120,6 +120,79 @@ See `app/interfaces/api.py` for the route list. Standard endpoints:
 - `GET /livez` → liveness probe
 - `GET /readyz` → readiness probe (checks deps reachable)
 
+## Testing via curl
+
+With this service running standalone on port **8001** (e.g. via `docker compose up atlas atlas_db pubsub`), you can drive it end-to-end without the BFF.
+
+```bash
+BASE=http://localhost:8001
+T=11111111-1111-1111-1111-111111111111
+IDEM=$(uuidgen)
+```
+
+**Liveness + readiness**
+
+```bash
+curl -sf $BASE/livez    # {"status":"ok"}
+curl -sf $BASE/readyz   # {"db":"ok"} or 503 on drain
+```
+
+**ADD an enrollment** (idempotent — reuse `Idempotency-Key` to replay)
+
+```bash
+MEMBER=$(uuidgen); PLAN=$(uuidgen); EMP=$(uuidgen)
+curl -s -X POST $BASE/commands \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-Id: $T" \
+  -H "Idempotency-Key: $IDEM" \
+  -d "{
+    \"command_type\": \"ADD\",
+    \"tenant_id\": \"$T\",
+    \"employer_id\": \"$EMP\",
+    \"plan_id\": \"$PLAN\",
+    \"member_id\": \"$MEMBER\",
+    \"relationship\": \"subscriber\",
+    \"valid_from\": \"2026-05-01\"
+  }" | jq .
+# → {"enrollment_ids": ["..."]}
+```
+
+**TERMINATE** (closes the in-force row; bitemporally preserved for audit)
+
+```bash
+curl -s -X POST $BASE/commands \
+  -H "Content-Type: application/json" -H "X-Tenant-Id: $T" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d "{
+    \"command_type\": \"TERMINATE\",
+    \"tenant_id\": \"$T\", \"member_id\": \"$MEMBER\", \"plan_id\": \"$PLAN\",
+    \"valid_to\": \"2026-07-31\"
+  }" | jq .
+```
+
+**Timeline** — full bitemporal history (current + superseded segments)
+
+```bash
+curl -s "$BASE/members/$MEMBER/timeline" -H "X-Tenant-Id: $T" | jq .
+# → {"segments": [{..., "is_in_force": true, "txn_from": "...", "txn_to": "..."}]}
+```
+
+**Replay an Idempotency-Key** — same key + same body → cached response with `Idempotent-Replay: true` header.
+
+**Error envelope** (e.g. overlapping enrollment):
+
+```json
+{
+  "error": {
+    "code": "ENROLLMENT_OVERLAP",
+    "message": "Member already has active coverage for this plan overlapping the requested period.",
+    "correlation_id": "...",
+    "retryable": false,
+    "details": {}
+  }
+}
+```
+
 ## Patterns used
 
 - Hexagonal architecture (domain / application / infra / interfaces)
